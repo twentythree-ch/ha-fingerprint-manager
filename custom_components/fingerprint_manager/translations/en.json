@@ -5,14 +5,14 @@
         "title": "Set up Fingerprint Manager",
         "data": {
           "name": "Integration name",
-          "sensor_entity_id": "ESPHome fingerprint sensor (last finger ID)",
-          "event_type": "HA event type fired on scan",
-          "esphome_device": "ESPHome device name (for enrollment services)"
+          "event_prefix": "ESPHome event prefix",
+          "esphome_device": "ESPHome device name (HA service prefix)",
+          "sensor_entity_id": "ESPHome fingerprint ID sensor (optional)"
         },
         "data_description": {
-          "sensor_entity_id": "Select the sensor entity that reports the last matched fingerprint slot. Leave blank if you use events instead.",
-          "event_type": "The HA event type fired by ESPHome on every scan (default: esphome.fingerprint_scan).",
-          "esphome_device": "The ESPHome device service prefix used for enrollment, e.g. 'fingerprint_reader' for service esphome.fingerprint_reader_fingerprint_enroll."
+          "event_prefix": "The common prefix of all ESPHome homeassistant.event calls in your YAML, e.g. 'esphome.test_node' for events like esphome.test_node_finger_scan_matched.",
+          "esphome_device": "Device name as used in HA services (hyphens replaced by underscores), e.g. 'esphome_garage_fingerprint'. Used to call enroll/delete actions.",
+          "sensor_entity_id": "Optional: sensor entity that shows the last matched finger ID. Only needed if you do not use event_prefix."
         }
       }
     },
@@ -25,9 +25,9 @@
       "init": {
         "title": "Fingerprint Manager options",
         "data": {
-          "sensor_entity_id": "ESPHome fingerprint sensor (last finger ID)",
-          "event_type": "HA event type fired on scan",
-          "esphome_device": "ESPHome device name (for enrollment services)"
+          "event_prefix": "ESPHome event prefix",
+          "esphome_device": "ESPHome device name (HA service prefix)",
+          "sensor_entity_id": "ESPHome fingerprint ID sensor (optional)"
         }
       }
     },

@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from custom_components.fingerprint_manager.const import (
     EVENT_FINGERPRINT_ENROLLED,
+    EVENT_FINGERPRINT_ENROLLMENT_FAILED,
     EVENT_FINGERPRINT_SCAN,
+    EVENT_SUFFIX_ENROLLMENT_DONE,
+    EVENT_SUFFIX_ENROLLMENT_FAILED,
+    EVENT_SUFFIX_ENROLLMENT_SCAN,
+    EVENT_SUFFIX_MATCHED,
+    EVENT_SUFFIX_UNMATCHED,
     FINGERPRINT_STORAGE,
     STATE_ENROLLING,
     STATE_IDLE,
@@ -18,9 +24,32 @@ from custom_components.fingerprint_manager.const import (
 from custom_components.fingerprint_manager.coordinator import (
     FingerprintEntry,
     FingerprintManagerCoordinator,
+    _parse_int,
 )
 
 from .conftest import make_config_entry
+
+
+# ── _parse_int ────────────────────────────────────────────────────────────────
+
+class TestParseInt:
+    def test_integer_input(self):
+        assert _parse_int(5) == 5
+
+    def test_string_integer(self):
+        assert _parse_int("7") == 7
+
+    def test_string_float(self):
+        assert _parse_int("3.0") == 3
+
+    def test_none_returns_default(self):
+        assert _parse_int(None) == 0
+
+    def test_non_numeric_returns_default(self):
+        assert _parse_int("abc") == 0
+
+    def test_custom_default(self):
+        assert _parse_int("bad", default=-1) == -1
 
 
 # ── FingerprintEntry ──────────────────────────────────────────────────────────
@@ -35,244 +64,319 @@ class TestFingerprintEntry:
         }
 
     def test_from_dict_with_label(self):
-        data = {"fingerprint_id": 5, "user": "Bob", "label": "Right thumb"}
-        fp = FingerprintEntry.from_dict(data)
+        fp = FingerprintEntry.from_dict(
+            {"fingerprint_id": 5, "user": "Bob", "label": "Right thumb"}
+        )
         assert fp.fingerprint_id == 5
         assert fp.user == "Bob"
         assert fp.label == "Right thumb"
 
-    def test_from_dict_without_label(self):
-        data = {"fingerprint_id": 7, "user": "Carol"}
-        fp = FingerprintEntry.from_dict(data)
+    def test_from_dict_without_label_defaults_empty(self):
+        fp = FingerprintEntry.from_dict({"fingerprint_id": 7, "user": "Carol"})
         assert fp.label == ""
 
+    def test_from_dict_accepts_string_id(self):
+        fp = FingerprintEntry.from_dict({"fingerprint_id": "10", "user": "Dave"})
+        assert fp.fingerprint_id == 10
+
     def test_round_trip(self):
-        fp = FingerprintEntry(fingerprint_id=10, user="Dave", label="Thumb")
-        assert FingerprintEntry.from_dict(fp.to_dict()).user == "Dave"
+        fp = FingerprintEntry(fingerprint_id=10, user="Eve", label="Thumb")
+        recovered = FingerprintEntry.from_dict(fp.to_dict())
+        assert recovered.fingerprint_id == fp.fingerprint_id
+        assert recovered.user == fp.user
+        assert recovered.label == fp.label
 
 
 # ── Coordinator setup ─────────────────────────────────────────────────────────
 
 class TestCoordinatorSetup:
-    @pytest.mark.asyncio
     async def test_loads_fingerprints_on_setup(self, hass, config_entry_with_fingerprints):
         coord = FingerprintManagerCoordinator(hass, config_entry_with_fingerprints)
-
-        with patch.object(hass.bus, "async_listen", return_value=lambda: None):
-            with patch(
-                "custom_components.fingerprint_manager.coordinator.async_track_state_change_event",
-                return_value=lambda: None,
-            ):
-                await coord.async_setup()
+        with patch(
+            "custom_components.fingerprint_manager.coordinator.async_track_state_change_event",
+            return_value=lambda: None,
+        ):
+            await coord.async_setup()
 
         assert len(coord.fingerprints) == 2
         assert coord.fingerprints[1].user == "Alice"
         assert coord.fingerprints[2].user == "Bob"
 
-    @pytest.mark.asyncio
-    async def test_setup_subscribes_to_event_and_sensor(self, hass, config_entry):
-        listen_calls = []
-        sensor_unsub_calls = []
-
+    async def test_setup_subscribes_to_all_event_suffixes(self, hass, config_entry):
+        listened_events: list[str] = []
         hass.bus.async_listen = MagicMock(
-            side_effect=lambda evt, cb: listen_calls.append(evt) or (lambda: None)
+            side_effect=lambda evt, cb: listened_events.append(evt) or (lambda: None)
         )
-
         with patch(
             "custom_components.fingerprint_manager.coordinator.async_track_state_change_event",
-            side_effect=lambda h, entities, cb: sensor_unsub_calls.append(entities)
-            or (lambda: None),
+            return_value=lambda: None,
         ):
             coord = FingerprintManagerCoordinator(hass, config_entry)
             await coord.async_setup()
 
-        assert any("fingerprint_scan" in e for e in listen_calls)
-        assert sensor_unsub_calls  # sensor subscription was registered
+        prefix = "esphome.garage_fingerprint"
+        from custom_components.fingerprint_manager.const import (
+            EVENT_SUFFIX_INVALID,
+            EVENT_SUFFIX_MISPLACED,
+        )
+        for suffix in (
+            EVENT_SUFFIX_MATCHED,
+            EVENT_SUFFIX_UNMATCHED,
+            EVENT_SUFFIX_INVALID,
+            EVENT_SUFFIX_MISPLACED,
+            EVENT_SUFFIX_ENROLLMENT_SCAN,
+            EVENT_SUFFIX_ENROLLMENT_DONE,
+            EVENT_SUFFIX_ENROLLMENT_FAILED,
+        ):
+            assert f"{prefix}{suffix}" in listened_events
+
+    async def test_setup_subscribes_to_sensor(self, hass, config_entry):
+        tracked = []
+        with patch(
+            "custom_components.fingerprint_manager.coordinator.async_track_state_change_event",
+            side_effect=lambda h, entities, cb: tracked.extend(entities) or (lambda: None),
+        ):
+            coord = FingerprintManagerCoordinator(hass, config_entry)
+            await coord.async_setup()
+
+        assert "sensor.garage_fingerprint_fingerprint_id" in tracked
+
+    async def test_teardown_calls_all_unsubs(self, hass):
+        unsub1, unsub2 = MagicMock(), MagicMock()
+        coord = FingerprintManagerCoordinator(hass, make_config_entry())
+        coord._unsub_listeners = [unsub1, unsub2]
+
+        coord.async_teardown()
+
+        unsub1.assert_called_once()
+        unsub2.assert_called_once()
+        assert coord._unsub_listeners == []
 
 
-# ── Scan processing ───────────────────────────────────────────────────────────
+# ── Scan matched event handler ────────────────────────────────────────────────
 
-class TestScanProcessing:
-    def _make_coordinator(self, hass, options=None):
-        entry = make_config_entry(options=options or {})
-        coord = FingerprintManagerCoordinator(hass, entry)
+class TestHandleScanMatched:
+    def _coord_with_fps(self, hass):
+        coord = FingerprintManagerCoordinator(hass, make_config_entry())
+        coord._fingerprints = {
+            5: FingerprintEntry(5, "Alice", "Left index"),
+        }
         return coord
 
-    def _load_fingerprints(self, coord):
-        """Helper: manually load two fingerprints."""
-        coord._fingerprints = {
-            1: FingerprintEntry(1, "Alice", "Left index"),
-            2: FingerprintEntry(2, "Bob", "Right thumb"),
-        }
+    def _event(self, finger_id, confidence=None):
+        ev = MagicMock()
+        ev.data = {"finger_id": str(finger_id)}
+        if confidence is not None:
+            ev.data["confidence"] = str(confidence)
+        return ev
 
-    def test_known_fingerprint_sets_matched_status(self, hass):
-        coord = self._make_coordinator(hass)
-        self._load_fingerprints(coord)
-
-        coord._process_scan(1)
-
+    def test_known_finger_sets_matched_status(self, hass):
+        coord = self._coord_with_fps(hass)
+        coord._handle_scan_matched(self._event(5, 98))
         assert coord.status == STATE_MATCHED
         assert coord.last_user == "Alice"
-        assert coord.last_fingerprint_id == 1
+        assert coord.last_fingerprint_id == 5
 
-    def test_known_fingerprint_fires_scan_event(self, hass):
-        coord = self._make_coordinator(hass)
-        self._load_fingerprints(coord)
-
-        coord._process_scan(1)
-
+    def test_known_finger_fires_scan_event_with_user(self, hass):
+        coord = self._coord_with_fps(hass)
+        coord._handle_scan_matched(self._event(5, 98))
         hass.bus.async_fire.assert_called_once()
-        event_name, event_data = hass.bus.async_fire.call_args[0]
-        assert event_name == EVENT_FINGERPRINT_SCAN
-        assert event_data["user"] == "Alice"
-        assert event_data["matched"] is True
+        name, data = hass.bus.async_fire.call_args[0]
+        assert name == EVENT_FINGERPRINT_SCAN
+        assert data["user"] == "Alice"
+        assert data["matched"] is True
+        assert data["confidence"] == 98
 
-    def test_unknown_fingerprint_sets_unknown_status(self, hass):
-        coord = self._make_coordinator(hass)
-        self._load_fingerprints(coord)
-
-        coord._process_scan(99)
-
+    def test_unknown_finger_sets_unknown_status(self, hass):
+        coord = self._coord_with_fps(hass)
+        coord._handle_scan_matched(self._event(99))
         assert coord.status == STATE_UNKNOWN_FINGER
         assert coord.last_user is None
 
-    def test_unknown_fingerprint_fires_scan_event_unmatched(self, hass):
-        coord = self._make_coordinator(hass)
-        self._load_fingerprints(coord)
+    def test_unknown_finger_fires_scan_event_unmatched(self, hass):
+        coord = self._coord_with_fps(hass)
+        coord._handle_scan_matched(self._event(99))
+        _, data = hass.bus.async_fire.call_args[0]
+        assert data["matched"] is False
+        assert data["user"] is None
 
-        coord._process_scan(99)
+    def test_zero_finger_id_ignored(self, hass):
+        coord = self._coord_with_fps(hass)
+        coord._handle_scan_matched(self._event(0))
+        hass.bus.async_fire.assert_not_called()
 
+    def test_negative_finger_id_ignored(self, hass):
+        coord = self._coord_with_fps(hass)
+        coord._handle_scan_matched(self._event(-1))
+        hass.bus.async_fire.assert_not_called()
+
+    def test_confidence_omitted_when_zero(self, hass):
+        """Zero confidence → key should be absent from event data."""
+        coord = self._coord_with_fps(hass)
+        coord._handle_scan_matched(self._event(5))  # no confidence in event
+        _, data = hass.bus.async_fire.call_args[0]
+        assert "confidence" not in data
+
+
+# ── Scan unmatched event handler ──────────────────────────────────────────────
+
+class TestHandleScanUnmatched:
+    def test_sets_unknown_status_and_fires_event(self, hass):
+        coord = FingerprintManagerCoordinator(hass, make_config_entry())
+        ev = MagicMock()
+        ev.data = {}
+        coord._handle_scan_unmatched(ev)
+        assert coord.status == STATE_UNKNOWN_FINGER
         hass.bus.async_fire.assert_called_once()
-        _, event_data = hass.bus.async_fire.call_args[0]
-        assert event_data["matched"] is False
-        assert event_data["user"] is None
-
-    def test_confidence_included_when_provided(self, hass):
-        coord = self._make_coordinator(hass)
-        self._load_fingerprints(coord)
-
-        coord._process_scan(1, confidence=98)
-
-        _, event_data = hass.bus.async_fire.call_args[0]
-        assert event_data["confidence"] == 98
+        name, data = hass.bus.async_fire.call_args[0]
+        assert name == EVENT_FINGERPRINT_SCAN
+        assert data["matched"] is False
 
 
-# ── Sensor state-change handler ───────────────────────────────────────────────
+# ── Invalid / misplaced scan event handlers ───────────────────────────────────
+
+class TestHandleScanInvalidAndMisplaced:
+    def test_invalid_scan_sets_status(self, hass):
+        coord = FingerprintManagerCoordinator(hass, make_config_entry())
+        ev = MagicMock()
+        ev.data = {}
+        coord._handle_scan_invalid(ev)
+        assert coord.status == "invalid_scan"
+        # No fingerprint_manager_scan event for invalid scans
+        hass.bus.async_fire.assert_not_called()
+
+    def test_misplaced_scan_sets_status(self, hass):
+        coord = FingerprintManagerCoordinator(hass, make_config_entry())
+        ev = MagicMock()
+        ev.data = {}
+        coord._handle_scan_misplaced(ev)
+        assert coord.status == "finger_misplaced"
+        # No fingerprint_manager_scan event for misplaced scans
+        hass.bus.async_fire.assert_not_called()
+
+
+# ── Enrollment scan event handler ─────────────────────────────────────────────
+
+class TestHandleEnrollmentScan:
+    def test_updates_status_with_scan_number(self, hass):
+        coord = FingerprintManagerCoordinator(hass, make_config_entry())
+        ev = MagicMock()
+        ev.data = {"finger_id": "3", "scan_num": "1"}
+        coord._handle_enrollment_scan(ev)
+        assert coord.status == "enrolling_1"
+
+
+# ── Enrollment done event handler ─────────────────────────────────────────────
+
+class TestHandleEnrollmentDone:
+    def test_sets_idle_and_fires_enrolled_event(self, hass):
+        coord = FingerprintManagerCoordinator(hass, make_config_entry())
+        coord._fingerprints = {3: FingerprintEntry(3, "Frank", "Pinky")}
+        coord._status = STATE_ENROLLING
+        coord._pending_fingerprint_id = 3
+
+        ev = MagicMock()
+        ev.data = {"finger_id": "3"}
+        coord._handle_enrollment_done(ev)
+
+        assert coord.status == STATE_IDLE
+        assert coord._pending_fingerprint_id is None
+        hass.bus.async_fire.assert_called_once()
+        name, data = hass.bus.async_fire.call_args[0]
+        assert name == EVENT_FINGERPRINT_ENROLLED
+        assert data["user"] == "Frank"
+
+    def test_fires_enrolled_event_even_if_no_mapping(self, hass):
+        """ESPHome fired enrollment_done for a slot we don't know about."""
+        coord = FingerprintManagerCoordinator(hass, make_config_entry())
+        ev = MagicMock()
+        ev.data = {"finger_id": "99"}
+        coord._handle_enrollment_done(ev)
+        name, data = hass.bus.async_fire.call_args[0]
+        assert name == EVENT_FINGERPRINT_ENROLLED
+        assert data["user"] is None
+
+
+# ── Enrollment failed event handler ───────────────────────────────────────────
+
+class TestHandleEnrollmentFailed:
+    def test_removes_optimistic_mapping_and_fires_failed_event(self, hass):
+        coord = FingerprintManagerCoordinator(hass, make_config_entry())
+        coord._fingerprints = {7: FingerprintEntry(7, "Grace", "")}
+        coord._pending_fingerprint_id = 7
+        coord._status = STATE_ENROLLING
+
+        ev = MagicMock()
+        ev.data = {"finger_id": "7"}
+        coord._handle_enrollment_failed(ev)
+
+        assert 7 not in coord.fingerprints
+        assert coord.status == STATE_IDLE
+        assert coord._pending_fingerprint_id is None
+        hass.bus.async_fire.assert_called_once()
+        name, _ = hass.bus.async_fire.call_args[0]
+        assert name == EVENT_FINGERPRINT_ENROLLMENT_FAILED
+
+
+# ── Sensor state-change listener ──────────────────────────────────────────────
 
 class TestSensorStateChange:
-    def _coord_with_fingerprints(self, hass):
-        coord = FingerprintManagerCoordinator(hass, make_config_entry())
-        coord._fingerprints = {
-            5: FingerprintEntry(5, "Eve", "Index"),
-        }
+    def _coord(self, hass, event_prefix=""):
+        """Create a coordinator without an event_prefix so sensor is used as sole source."""
+        entry = make_config_entry(data={
+            "event_prefix": event_prefix,
+            "esphome_device": "",
+            "sensor_entity_id": "sensor.fp",
+        })
+        coord = FingerprintManagerCoordinator(hass, entry)
+        coord._fingerprints = {5: FingerprintEntry(5, "Eve", "Index")}
         return coord
 
-    def _make_event(self, new_state_value, old_state_value="0"):
-        def make_state(val):
+    def _evt(self, new_val, old_val="0"):
+        def _state(v):
             s = MagicMock()
-            s.state = val
+            s.state = v
             return s
+        ev = MagicMock()
+        ev.data = {"new_state": _state(new_val), "old_state": _state(old_val)}
+        return ev
 
-        event = MagicMock()
-        event.data = {
-            "new_state": make_state(new_state_value),
-            "old_state": make_state(old_state_value),
-        }
-        return event
+    def test_valid_id_fires_scan_event_when_no_prefix(self, hass):
+        coord = self._coord(hass, event_prefix="")
+        coord._handle_sensor_state_change(self._evt("5"))
+        hass.bus.async_fire.assert_called_once()
+        name, data = hass.bus.async_fire.call_args[0]
+        assert name == EVENT_FINGERPRINT_SCAN
+        assert data["matched"] is True
 
-    def test_valid_state_triggers_process_scan(self, hass):
-        coord = self._coord_with_fingerprints(hass)
-        process = MagicMock()
-        coord._process_scan = process
-
-        coord._handle_sensor_state_change(self._make_event("5"))
-
-        process.assert_called_once_with(5)
-
-    def test_zero_state_sets_idle(self, hass):
-        coord = self._coord_with_fingerprints(hass)
+    def test_negative_id_sets_idle(self, hass):
+        coord = self._coord(hass, event_prefix="")
         coord._status = STATE_MATCHED
-
-        coord._handle_sensor_state_change(self._make_event("0", "5"))
-
+        coord._handle_sensor_state_change(self._evt("-1", "5"))
         assert coord.status == STATE_IDLE
 
     def test_unavailable_state_ignored(self, hass):
-        coord = self._coord_with_fingerprints(hass)
-        process = MagicMock()
-        coord._process_scan = process
-
-        coord._handle_sensor_state_change(self._make_event("unavailable"))
-
-        process.assert_not_called()
+        coord = self._coord(hass, event_prefix="")
+        coord._handle_sensor_state_change(self._evt("unavailable"))
+        hass.bus.async_fire.assert_not_called()
 
     def test_duplicate_state_not_reprocessed(self, hass):
-        coord = self._coord_with_fingerprints(hass)
-        process = MagicMock()
-        coord._process_scan = process
+        coord = self._coord(hass, event_prefix="")
+        coord._handle_sensor_state_change(self._evt("5", "5"))
+        hass.bus.async_fire.assert_not_called()
 
-        # old and new state are the same
-        coord._handle_sensor_state_change(self._make_event("5", "5"))
-
-        process.assert_not_called()
-
-
-# ── ESPHome event handler ─────────────────────────────────────────────────────
-
-class TestESPHomeEventHandler:
-    def _coord(self, hass):
-        coord = FingerprintManagerCoordinator(hass, make_config_entry())
-        coord._fingerprints = {3: FingerprintEntry(3, "Frank", "")}
-        return coord
-
-    def _make_event(self, data):
-        event = MagicMock()
-        event.data = data
-        return event
-
-    def test_handles_integer_finger_id(self, hass):
-        coord = self._coord(hass)
-        process = MagicMock()
-        coord._process_scan = process
-
-        coord._handle_esphome_event(self._make_event({"finger_id": 3, "matched": "true"}))
-
-        process.assert_called_once_with(3, None)
-
-    def test_handles_string_finger_id(self, hass):
-        coord = self._coord(hass)
-        process = MagicMock()
-        coord._process_scan = process
-
-        coord._handle_esphome_event(self._make_event({"finger_id": "3", "confidence": "100"}))
-
-        process.assert_called_once_with(3, 100)
-
-    def test_zero_finger_id_ignored(self, hass):
-        coord = self._coord(hass)
-        process = MagicMock()
-        coord._process_scan = process
-
-        coord._handle_esphome_event(self._make_event({"finger_id": 0}))
-
-        process.assert_not_called()
-
-    def test_missing_finger_id_ignored(self, hass):
-        coord = self._coord(hass)
-        process = MagicMock()
-        coord._process_scan = process
-
-        coord._handle_esphome_event(self._make_event({}))
-
-        process.assert_not_called()
+    def test_sensor_does_not_fire_when_event_prefix_set(self, hass):
+        """When event_prefix is configured the sensor should not duplicate scans."""
+        coord = self._coord(hass, event_prefix="esphome.garage_fingerprint")
+        coord._handle_sensor_state_change(self._evt("5"))
+        hass.bus.async_fire.assert_not_called()
 
 
 # ── CRUD services ─────────────────────────────────────────────────────────────
 
 class TestCRUD:
-    @pytest.mark.asyncio
-    async def test_start_enrollment_adds_fingerprint(self, hass):
-        entry = make_config_entry(data={})  # no ESPHome device
+    async def test_start_enrollment_registers_mapping_immediately(self, hass):
+        entry = make_config_entry(data={"event_prefix": "", "esphome_device": ""})
         coord = FingerprintManagerCoordinator(hass, entry)
 
         await coord.async_start_enrollment(10, "Grace", "Pinky")
@@ -282,20 +386,24 @@ class TestCRUD:
         assert coord.fingerprints[10].label == "Pinky"
         assert coord.status == STATE_ENROLLING
 
-    @pytest.mark.asyncio
-    async def test_start_enrollment_fires_enrolled_event(self, hass):
-        entry = make_config_entry(data={})
+    async def test_start_enrollment_calls_esphome_service(self, hass):
+        entry = make_config_entry(data={
+            "event_prefix": "esphome.garage_fingerprint",
+            "esphome_device": "esphome_garage_fingerprint",
+        })
         coord = FingerprintManagerCoordinator(hass, entry)
 
-        await coord.async_start_enrollment(10, "Grace")
+        await coord.async_start_enrollment(3, "Heidi", num_scans=3)
 
-        hass.bus.async_fire.assert_called_once()
-        event_name, _ = hass.bus.async_fire.call_args[0]
-        assert event_name == EVENT_FINGERPRINT_ENROLLED
+        hass.services.async_call.assert_called_once_with(
+            "esphome",
+            "esphome_garage_fingerprint_enroll",
+            {"finger_id": 3, "num_scans": 3},
+            blocking=False,
+        )
 
-    @pytest.mark.asyncio
     async def test_cancel_enrollment_resets_status(self, hass):
-        entry = make_config_entry(data={})
+        entry = make_config_entry(data={"event_prefix": "", "esphome_device": ""})
         coord = FingerprintManagerCoordinator(hass, entry)
         coord._status = STATE_ENROLLING
 
@@ -303,14 +411,30 @@ class TestCRUD:
 
         assert coord.status == STATE_IDLE
 
-    @pytest.mark.asyncio
-    async def test_delete_fingerprint_removes_entry(self, hass):
+    async def test_cancel_enrollment_calls_esphome_service(self, hass):
+        entry = make_config_entry(data={
+            "event_prefix": "",
+            "esphome_device": "esphome_garage_fingerprint",
+        })
+        coord = FingerprintManagerCoordinator(hass, entry)
+
+        await coord.async_cancel_enrollment()
+
+        hass.services.async_call.assert_called_once_with(
+            "esphome",
+            "esphome_garage_fingerprint_cancel_enroll",
+            {},
+            blocking=False,
+        )
+
+    async def test_delete_fingerprint_removes_mapping(self, hass):
         entry = make_config_entry(
             options={
                 FINGERPRINT_STORAGE: {
                     "5": {"fingerprint_id": 5, "user": "Heidi", "label": ""}
                 }
-            }
+            },
+            data={"event_prefix": "", "esphome_device": ""},
         )
         coord = FingerprintManagerCoordinator(hass, entry)
         coord._load_fingerprints()
@@ -319,22 +443,64 @@ class TestCRUD:
 
         assert 5 not in coord.fingerprints
 
-    @pytest.mark.asyncio
-    async def test_delete_nonexistent_fingerprint_is_noop(self, hass):
-        entry = make_config_entry(data={})
+    async def test_delete_fingerprint_calls_esphome_service(self, hass):
+        entry = make_config_entry(
+            options={FINGERPRINT_STORAGE: {"5": {"fingerprint_id": 5, "user": "Ivan", "label": ""}}},
+            data={"event_prefix": "", "esphome_device": "esphome_garage_fingerprint"},
+        )
         coord = FingerprintManagerCoordinator(hass, entry)
+        coord._load_fingerprints()
 
-        # Should not raise
-        await coord.async_delete_fingerprint(99)
+        await coord.async_delete_fingerprint(5)
 
-    @pytest.mark.asyncio
-    async def test_update_fingerprint_changes_user(self, hass):
+        hass.services.async_call.assert_called_once_with(
+            "esphome",
+            "esphome_garage_fingerprint_delete",
+            {"finger_id": 5},
+            blocking=False,
+        )
+
+    async def test_delete_nonexistent_fingerprint_is_noop(self, hass):
+        entry = make_config_entry(data={"event_prefix": "", "esphome_device": ""})
+        coord = FingerprintManagerCoordinator(hass, entry)
+        await coord.async_delete_fingerprint(99)  # must not raise
+
+    async def test_delete_all_clears_all_mappings(self, hass):
         entry = make_config_entry(
             options={
                 FINGERPRINT_STORAGE: {
-                    "3": {"fingerprint_id": 3, "user": "Ivan", "label": ""}
+                    "1": {"fingerprint_id": 1, "user": "A", "label": ""},
+                    "2": {"fingerprint_id": 2, "user": "B", "label": ""},
                 }
-            }
+            },
+            data={"event_prefix": "", "esphome_device": ""},
+        )
+        coord = FingerprintManagerCoordinator(hass, entry)
+        coord._load_fingerprints()
+
+        await coord.async_delete_all_fingerprints()
+
+        assert coord.fingerprints == {}
+
+    async def test_delete_all_calls_esphome_service(self, hass):
+        entry = make_config_entry(
+            data={"event_prefix": "", "esphome_device": "esphome_garage_fingerprint"}
+        )
+        coord = FingerprintManagerCoordinator(hass, entry)
+
+        await coord.async_delete_all_fingerprints()
+
+        hass.services.async_call.assert_called_once_with(
+            "esphome",
+            "esphome_garage_fingerprint_delete_all",
+            {},
+            blocking=False,
+        )
+
+    async def test_update_changes_user(self, hass):
+        entry = make_config_entry(
+            options={FINGERPRINT_STORAGE: {"3": {"fingerprint_id": 3, "user": "Ivan", "label": ""}}},
+            data={"event_prefix": "", "esphome_device": ""},
         )
         coord = FingerprintManagerCoordinator(hass, entry)
         coord._load_fingerprints()
@@ -343,14 +509,10 @@ class TestCRUD:
 
         assert coord.fingerprints[3].user == "Ivan Updated"
 
-    @pytest.mark.asyncio
-    async def test_update_fingerprint_changes_label(self, hass):
+    async def test_update_changes_label_without_touching_user(self, hass):
         entry = make_config_entry(
-            options={
-                FINGERPRINT_STORAGE: {
-                    "3": {"fingerprint_id": 3, "user": "Judy", "label": "old"}
-                }
-            }
+            options={FINGERPRINT_STORAGE: {"3": {"fingerprint_id": 3, "user": "Judy", "label": "old"}}},
+            data={"event_prefix": "", "esphome_device": ""},
         )
         coord = FingerprintManagerCoordinator(hass, entry)
         coord._load_fingerprints()
@@ -358,24 +520,9 @@ class TestCRUD:
         await coord.async_update_fingerprint(3, label="New label")
 
         assert coord.fingerprints[3].label == "New label"
-        assert coord.fingerprints[3].user == "Judy"  # unchanged
+        assert coord.fingerprints[3].user == "Judy"
 
-    @pytest.mark.asyncio
-    async def test_update_nonexistent_fingerprint_is_noop(self, hass):
-        entry = make_config_entry(data={})
+    async def test_update_nonexistent_is_noop(self, hass):
+        entry = make_config_entry(data={"event_prefix": "", "esphome_device": ""})
         coord = FingerprintManagerCoordinator(hass, entry)
-
-        # Should not raise
-        await coord.async_update_fingerprint(42, user="Nobody")
-
-    @pytest.mark.asyncio
-    async def test_teardown_clears_listeners(self, hass):
-        unsub = MagicMock()
-        entry = make_config_entry(data={})
-        coord = FingerprintManagerCoordinator(hass, entry)
-        coord._unsub_listeners = [unsub, unsub]
-
-        coord.async_teardown()
-
-        assert unsub.call_count == 2
-        assert coord._unsub_listeners == []
+        await coord.async_update_fingerprint(42, user="Nobody")  # must not raise

@@ -9,9 +9,8 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_ESPHOME_DEVICE,
-    CONF_EVENT_TYPE,
+    CONF_EVENT_PREFIX,
     CONF_SENSOR_ENTITY,
-    DEFAULT_EVENT_TYPE,
     DOMAIN,
 )
 
@@ -44,13 +43,16 @@ class FingerprintManagerConfigFlow(
             data_schema=vol.Schema(
                 {
                     vol.Required("name", default="Fingerprint Manager"): str,
+                    # Event prefix: the part before _finger_scan_matched etc.
+                    # e.g. "esphome.test_node" for event esphome.test_node_finger_scan_matched
+                    vol.Optional(CONF_EVENT_PREFIX, default=""): str,
+                    # ESPHome device name in HA service format (hyphens → underscores)
+                    # e.g. "esphome_garage_fingerprint"
+                    vol.Optional(CONF_ESPHOME_DEVICE, default=""): str,
+                    # Optional: ESPHome sensor showing the last finger ID
                     vol.Optional(CONF_SENSOR_ENTITY): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="sensor"),
                     ),
-                    vol.Optional(
-                        CONF_EVENT_TYPE, default=DEFAULT_EVENT_TYPE
-                    ): str,
-                    vol.Optional(CONF_ESPHOME_DEVICE): str,
                 }
             ),
             errors=errors,
@@ -65,7 +67,7 @@ class FingerprintManagerConfigFlow(
 
 
 class FingerprintManagerOptionsFlow(config_entries.OptionsFlow):
-    """Handle option updates (sensor entity, event type, ESPHome device name)."""
+    """Handle option updates after initial setup."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self.config_entry = config_entry
@@ -83,23 +85,27 @@ class FingerprintManagerOptionsFlow(config_entries.OptionsFlow):
             if not errors:
                 return self.async_create_entry(title="", data=user_input)
 
-        current_sensor = self._current(CONF_SENSOR_ENTITY, "")
-        current_event = self._current(CONF_EVENT_TYPE, DEFAULT_EVENT_TYPE)
-        current_device = self._current(CONF_ESPHOME_DEVICE, "")
-
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(CONF_SENSOR_ENTITY, default=current_sensor): selector.EntitySelector(
+                    vol.Optional(
+                        CONF_EVENT_PREFIX, default=self._current(CONF_EVENT_PREFIX)
+                    ): str,
+                    vol.Optional(
+                        CONF_ESPHOME_DEVICE, default=self._current(CONF_ESPHOME_DEVICE)
+                    ): str,
+                    vol.Optional(
+                        CONF_SENSOR_ENTITY,
+                        default=self._current(CONF_SENSOR_ENTITY),
+                    ): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="sensor"),
                     ),
-                    vol.Optional(CONF_EVENT_TYPE, default=current_event): str,
-                    vol.Optional(CONF_ESPHOME_DEVICE, default=current_device): str,
                 }
             ),
             errors=errors,
         )
 
     def _current(self, key: str, default: str = "") -> str:
+        """Return current option, falling back to original data."""
         return self.config_entry.options.get(key) or self.config_entry.data.get(key, default)

@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
 
 from custom_components.fingerprint_manager.const import (
     CONF_ESPHOME_DEVICE,
-    CONF_EVENT_TYPE,
+    CONF_EVENT_PREFIX,
     CONF_SENSOR_ENTITY,
-    DEFAULT_EVENT_TYPE,
     DOMAIN,
     FINGERPRINT_STORAGE,
 )
@@ -30,25 +28,26 @@ def make_config_entry(
     entry = MagicMock(spec=ConfigEntry)
     entry.entry_id = entry_id
     entry.title = "Test Fingerprint Manager"
-    entry.data = data or {
-        CONF_SENSOR_ENTITY: "sensor.fingerprint_last_id",
-        CONF_EVENT_TYPE: DEFAULT_EVENT_TYPE,
-        CONF_ESPHOME_DEVICE: "fingerprint_reader",
+    entry.data = data if data is not None else {
+        CONF_EVENT_PREFIX: "esphome.garage_fingerprint",
+        CONF_ESPHOME_DEVICE: "esphome_garage_fingerprint",
+        CONF_SENSOR_ENTITY: "sensor.garage_fingerprint_fingerprint_id",
     }
-    entry.options = options or {}
+    entry.options = options if options is not None else {}
     return entry
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture
-def hass(event_loop):
+def hass():
     """Return a minimal mock HomeAssistant instance."""
-    hass = MagicMock(spec=HomeAssistant)
+    hass = MagicMock()
+
     hass.states = MagicMock()
     hass.states.get = MagicMock(return_value=None)
 
-    # bus
+    # bus – async_listen returns a plain callable (the unsub function)
     hass.bus = MagicMock()
     hass.bus.async_listen = MagicMock(return_value=lambda: None)
     hass.bus.async_fire = MagicMock()
@@ -60,6 +59,14 @@ def hass(event_loop):
     # services
     hass.services = MagicMock()
     hass.services.async_call = AsyncMock()
+
+    # async_create_task (used by _handle_enrollment_failed).
+    # Close the coroutine so Python doesn't warn about it being unawaited.
+    def _close_coro(coro):
+        if hasattr(coro, "close"):
+            coro.close()
+
+    hass.async_create_task = MagicMock(side_effect=_close_coro)
 
     return hass
 

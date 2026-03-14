@@ -1,9 +1,9 @@
 start_enrollment:
   name: Start Enrollment
   description: >-
-    Enroll a new fingerprint and assign it to a user. The fingerprint reader
-    will prompt for the required number of scans. The mapping is stored
-    immediately so the sensor reflects the new user at once.
+    Enroll a new fingerprint and assign it to a user. The ESPHome reader will
+    prompt for the required number of scans. The mapping is pre-registered so
+    confirmed scans are recognised immediately.
   fields:
     fingerprint_id:
       name: Fingerprint ID
@@ -17,7 +17,7 @@ start_enrollment:
           mode: box
     user:
       name: User
-      description: Name of the person to assign to this fingerprint.
+      description: Name of the person to assign this fingerprint to.
       required: true
       example: Alice
       selector:
@@ -31,7 +31,7 @@ start_enrollment:
         text:
     num_scans:
       name: Number of scans
-      description: How many times the user must present their finger during enrollment.
+      description: How many times the user must scan their finger (matches the ESPHome num_scans variable).
       required: false
       default: 2
       example: 2
@@ -47,11 +47,11 @@ cancel_enrollment:
 
 delete_fingerprint:
   name: Delete Fingerprint
-  description: Remove a fingerprint mapping from the component (and the ESPHome reader if configured).
+  description: Remove a fingerprint mapping and delete the slot from the ESPHome reader.
   fields:
     fingerprint_id:
       name: Fingerprint ID
-      description: Slot number to delete.
+      description: Slot number to delete (1–200).
       required: true
       example: 1
       selector:
@@ -60,9 +60,13 @@ delete_fingerprint:
           max: 200
           mode: box
 
+delete_all_fingerprints:
+  name: Delete All Fingerprints
+  description: Remove all fingerprint mappings and wipe all slots from the ESPHome reader.
+
 update_fingerprint:
   name: Update Fingerprint
-  description: Change the user name or label of an existing fingerprint mapping.
+  description: Change the user name or label of an existing fingerprint mapping (no hardware interaction).
   fields:
     fingerprint_id:
       name: Fingerprint ID
