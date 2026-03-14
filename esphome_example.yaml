@@ -1,0 +1,95 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ESPHome configuration for the Grow R503 / Grow 503 fingerprint reader
+# Use this as a starting point and integrate it into your full ESPHome YAML.
+# ─────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  device_name: fingerprint_reader   # used as the HA service prefix
+  friendly_name: "Fingerprint Reader"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32dev
+
+# ── UART wiring for Grow R503 ─────────────────────────────────────────────────
+uart:
+  rx_pin: GPIO16
+  tx_pin: GPIO17
+  baud_rate: 57600
+
+# ── Fingerprint component ─────────────────────────────────────────────────────
+fingerprint_grow:
+  sensing_pin: GPIO4         # touch-detection wire (optional but recommended)
+
+  # Fires when a stored fingerprint is recognised.
+  on_finger_scan_matched:
+    - homeassistant.event:
+        event: esphome.fingerprint_scan
+        data:
+          # ESPHome lambda values are converted to strings by the template engine.
+          finger_id: !lambda 'return std::to_string(finger_id);'
+          confidence: !lambda 'return std::to_string(confidence);'
+          matched: "true"
+    - logger.log:
+        format: "Fingerprint matched: id=%d confidence=%d"
+        args: [finger_id, confidence]
+
+  # Fires when a finger is placed but NOT recognised.
+  on_finger_scan_unmatched:
+    - homeassistant.event:
+        event: esphome.fingerprint_scan
+        data:
+          finger_id: "0"
+          confidence: "0"
+          matched: "false"
+    - logger.log: "Fingerprint not matched"
+
+  # Optional: fires after successful enrollment (useful for debugging).
+  on_enrollment_done:
+    - logger.log:
+        format: "Enrollment complete for slot %d"
+        args: [finger_id]
+
+  # Optional: fires after a failed enrollment scan.
+  on_enrollment_failed:
+    - logger.log: "Enrollment scan failed – try again"
+
+# ── Sensor entities exposed to Home Assistant ─────────────────────────────────
+sensor:
+  - platform: fingerprint_grow
+    fingerprint_count:
+      name: "${friendly_name} Fingerprint Count"
+    last_finger_id:
+      name: "${friendly_name} Last Finger ID"
+      # This sensor is what you select in the Fingerprint Manager config flow
+      # as the "ESPHome fingerprint sensor".
+    last_confidence:
+      name: "${friendly_name} Last Confidence"
+
+# ── Binary sensor for touch detection ─────────────────────────────────────────
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO4
+      inverted: true
+    name: "${friendly_name} Touch"
+    device_class: occupancy
+
+# ── WiFi / API / OTA (fill in your own values) ────────────────────────────────
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+logger:
+  level: INFO

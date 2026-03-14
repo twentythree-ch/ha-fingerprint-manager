@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Fingerprint Manager",
+        "data": {
+          "name": "Integration name",
+          "sensor_entity_id": "ESPHome fingerprint sensor (last finger ID)",
+          "event_type": "HA event type fired on scan",
+          "esphome_device": "ESPHome device name (for enrollment services)"
+        },
+        "data_description": {
+          "sensor_entity_id": "Select the sensor entity that reports the last matched fingerprint slot. Leave blank if you use events instead.",
+          "event_type": "The HA event type fired by ESPHome on every scan (default: esphome.fingerprint_scan).",
+          "esphome_device": "The ESPHome device service prefix used for enrollment, e.g. 'fingerprint_reader' for service esphome.fingerprint_reader_fingerprint_enroll."
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "The selected sensor entity was not found. Make sure the ESPHome device is online."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Fingerprint Manager options",
+        "data": {
+          "sensor_entity_id": "ESPHome fingerprint sensor (last finger ID)",
+          "event_type": "HA event type fired on scan",
+          "esphome_device": "ESPHome device name (for enrollment services)"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "The selected sensor entity was not found."
+    }
+  }
+}

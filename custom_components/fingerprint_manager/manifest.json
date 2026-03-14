@@ -1,0 +1,11 @@
+{
+  "domain": "fingerprint_manager",
+  "name": "Fingerprint Manager",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/twentythree-ch/ha-fingerprint-manager",
+  "iot_class": "local_push",
+  "requirements": [],
+  "version": "1.0.0"
+}
