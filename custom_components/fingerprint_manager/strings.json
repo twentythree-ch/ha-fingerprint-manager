@@ -5,14 +5,24 @@
         "title": "Set up Fingerprint Manager",
         "data": {
           "name": "Integration name",
-          "event_prefix": "ESPHome event prefix",
-          "esphome_device": "ESPHome device name (HA service prefix)",
+          "esphome_device_id": "ESPHome device",
           "sensor_entity_id": "ESPHome fingerprint ID sensor (optional)"
         },
         "data_description": {
-          "event_prefix": "The common prefix of all ESPHome homeassistant.event calls in your YAML, e.g. 'esphome.test_node' for events like esphome.test_node_finger_scan_matched.",
-          "esphome_device": "Device name as used in HA services (hyphens replaced by underscores), e.g. 'esphome_garage_fingerprint'. Used to call enroll/delete actions.",
-          "sensor_entity_id": "Optional: sensor entity that shows the last matched finger ID. Only needed if you do not use event_prefix."
+          "esphome_device_id": "Select the ESPHome device that hosts your fingerprint reader. The service name and event prefix will be filled in automatically on the next screen.",
+          "sensor_entity_id": "Optional: sensor entity that shows the last matched finger ID. Only needed if you do not use an event prefix."
+        }
+      },
+      "configure": {
+        "title": "Confirm ESPHome settings",
+        "description": "These values are derived from the selected device. Adjust them only if your ESPHome YAML uses a different naming convention.",
+        "data": {
+          "event_prefix": "ESPHome event prefix",
+          "esphome_device": "ESPHome service name prefix"
+        },
+        "data_description": {
+          "event_prefix": "The common prefix of all homeassistant.event calls in your ESPHome YAML, e.g. 'esphome.garage_fingerprint'.",
+          "esphome_device": "Device name as used in HA services (hyphens replaced by underscores), e.g. 'esphome_garage_fingerprint'."
         }
       }
     },
@@ -25,9 +35,24 @@
       "init": {
         "title": "Fingerprint Manager options",
         "data": {
-          "event_prefix": "ESPHome event prefix",
-          "esphome_device": "ESPHome device name (HA service prefix)",
+          "esphome_device_id": "ESPHome device",
           "sensor_entity_id": "ESPHome fingerprint ID sensor (optional)"
+        },
+        "data_description": {
+          "esphome_device_id": "Select the ESPHome device that hosts your fingerprint reader. The service name and event prefix will be updated automatically on the next screen.",
+          "sensor_entity_id": "Optional: sensor entity that shows the last matched finger ID."
+        }
+      },
+      "configure": {
+        "title": "Confirm ESPHome settings",
+        "description": "These values are derived from the selected device. Adjust them only if your ESPHome YAML uses a different naming convention.",
+        "data": {
+          "event_prefix": "ESPHome event prefix",
+          "esphome_device": "ESPHome service name prefix"
+        },
+        "data_description": {
+          "event_prefix": "The common prefix of all homeassistant.event calls in your ESPHome YAML, e.g. 'esphome.garage_fingerprint'.",
+          "esphome_device": "Device name as used in HA services (hyphens replaced by underscores), e.g. 'esphome_garage_fingerprint'."
         }
       }
     },
