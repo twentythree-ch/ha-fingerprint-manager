@@ -14,6 +14,10 @@ CONF_EVENT_PREFIX = "event_prefix"
 # e.g. "esphome_garage_fingerprint" for a device named "esphome-garage-fingerprint".
 CONF_ESPHOME_DEVICE = "esphome_device"
 
+# Optional: HA device registry ID of the ESPHome device. When set the config
+# flow uses it to auto-derive CONF_ESPHOME_DEVICE and suggest CONF_EVENT_PREFIX.
+CONF_ESPHOME_DEVICE_ID = "esphome_device_id"
+
 # ── ESPHome event suffixes (appended to CONF_EVENT_PREFIX) ───────────────────
 # These match the event names used in the ESPHome template:
 #   on_finger_scan_matched  → {prefix}_finger_scan_matched

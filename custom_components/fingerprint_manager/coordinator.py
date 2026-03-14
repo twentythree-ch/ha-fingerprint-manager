@@ -288,6 +288,11 @@ class FingerprintManagerCoordinator(DataUpdateCoordinator):
             finger_id : str(int)
             scan_num  : str(int)  – which scan this is (1-based)
         """
+        if self._pending_fingerprint_id is None:
+            # No active enrollment; ignore late or spurious events so they
+            # cannot reset the status back to "enrolling" after enrollment_done
+            # has already cleared the pending state.
+            return
         scan_num = _parse_int(event.data.get("scan_num", 0))
         _LOGGER.info("Enrollment scan %d received", scan_num)
         self._status = f"{STATE_ENROLLING}_{scan_num}"

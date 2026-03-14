@@ -260,10 +260,23 @@ class TestHandleScanInvalidAndMisplaced:
 class TestHandleEnrollmentScan:
     def test_updates_status_with_scan_number(self, hass):
         coord = FingerprintManagerCoordinator(hass, make_config_entry())
+        coord._pending_fingerprint_id = 3
         ev = MagicMock()
         ev.data = {"finger_id": "3", "scan_num": "1"}
         coord._handle_enrollment_scan(ev)
         assert coord.status == "enrolling_1"
+
+    def test_ignored_when_no_active_enrollment(self, hass):
+        """A late enrollment_scan must not reset the status after enrollment_done."""
+        coord = FingerprintManagerCoordinator(hass, make_config_entry())
+        # Simulate enrollment already completed: pending cleared, status idle
+        coord._pending_fingerprint_id = None
+        coord._status = STATE_IDLE
+        ev = MagicMock()
+        ev.data = {"finger_id": "3", "scan_num": "2"}
+        coord._handle_enrollment_scan(ev)
+        # Status must NOT change back to enrolling
+        assert coord.status == STATE_IDLE
 
 
 # ── Enrollment done event handler ─────────────────────────────────────────────
