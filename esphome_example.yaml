@@ -1,0 +1,273 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ESPHome configuration for the Grow R503 / Grow 503 fingerprint reader.
+# This is the working template that the Fingerprint Manager component is
+# designed against.
+#
+# Fingerprint Manager configuration values to use in Home Assistant:
+#
+#   event_prefix      : esphome.garage_fingerprint
+#   esphome_device    : esphome_garage_fingerprint   (hyphens → underscores)
+#   sensor entity     : sensor.garage_fingerprint_fingerprint_id  (optional)
+#
+# Note: rename the event strings below (search for "test_node") to match your
+# device name for clarity, e.g. replace "test_node" with "garage_fingerprint".
+# ─────────────────────────────────────────────────────────────────────────────
+
+esphome:
+  name: esphome-garage-fingerprint
+  friendly_name: garage-fingerprint
+  min_version: 2025.8.2
+  name_add_mac_suffix: false
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+
+ota:
+  - platform: esphome
+    password: !secret OTAPWD-garage-fingerprint
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: .iot.twentythree.ch
+
+mqtt:
+  broker: emqx.dmz.twentythree.ch
+  port: 1883
+  username: TECesphome4
+  password: !secret TECesphome4_mqtt_password
+
+# PINS:
+# GPIO16  - Fingerprint RX
+# GPIO17  - Fingerprint TX
+# GPIO04  - Fingerprint sensing
+
+uart:
+  rx_pin: GPIO16
+  tx_pin: GPIO17
+  baud_rate: 57600
+
+text_sensor:
+  - platform: template
+    name: "Fingerprint Event"
+    id: fingerprint_event
+
+sensor:
+  - platform: template
+    name: "Fingerprint ID"
+    id: fingerprint_id_sensor
+    unit_of_measurement: "ID"
+    accuracy_decimals: 0
+
+  - platform: template
+    name: "Confidence"
+    id: fingerprint_confidence_sensor
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+
+fingerprint_grow:
+  sensing_pin: GPIO04
+
+  on_finger_scan_invalid:
+    - script.execute:
+        id: publish_fingerprint_state_only
+        state_str: "invalid"
+    - homeassistant.event:
+        event: esphome.garage_fingerprint_finger_scan_invalid
+    - mqtt.publish:
+        topic: fingerprint/events/finger_scan_invalid
+        payload: !lambda 'return std::string("{\"device\": \"") + App.get_name() + "\"}";'
+
+  on_finger_scan_start:
+    - script.execute:
+        id: publish_fingerprint_state_only
+        state_str: "scan_start"
+    - fingerprint_grow.aura_led_control:
+        state: ALWAYS_ON
+        color: GREEN
+        speed: 0
+        count: 0
+    - mqtt.publish:
+        topic: fingerprint/events/finger_scan_start
+        payload: !lambda 'return std::string("{\"device\": \"") + App.get_name() + "\"}";'
+
+  # ── MATCHED ── fires fingerprint_manager_scan event with matched=true
+  on_finger_scan_matched:
+    - script.execute:
+        id: publish_fingerprint_data
+        finger_id: !lambda 'return finger_id;'
+        confidence: !lambda 'return confidence;'
+        state_str: "matched"
+    - homeassistant.event:
+        event: esphome.garage_fingerprint_finger_scan_matched
+        data:
+          finger_id: !lambda 'return finger_id;'
+          confidence: !lambda 'return confidence;'
+    - fingerprint_grow.aura_led_control:
+        state: BREATHING
+        speed: 200
+        color: BLUE
+        count: 1
+    - mqtt.publish:
+        topic: fingerprint/events/finger_scan_matched
+        payload: !lambda |-
+          return std::string("{\"device\": \"") + App.get_name() +
+                 "\", \"finger_id\": " + std::to_string(finger_id) +
+                 ", \"confidence\": " + std::to_string(confidence) + "}";
+
+  # ── UNMATCHED ── fires fingerprint_manager_scan event with matched=false
+  on_finger_scan_unmatched:
+    - script.execute:
+        id: publish_fingerprint_state_only
+        state_str: "unmatched"
+    - homeassistant.event:
+        event: esphome.garage_fingerprint_finger_scan_unmatched
+    - fingerprint_grow.aura_led_control:
+        state: FLASHING
+        speed: 25
+        color: RED
+        count: 2
+    - mqtt.publish:
+        topic: fingerprint/events/finger_scan_unmatched
+        payload: !lambda 'return std::string("{\"device\": \"") + App.get_name() + "\"}";'
+
+  on_finger_scan_misplaced:
+    - script.execute:
+        id: publish_fingerprint_state_only
+        state_str: "misplaced"
+    - homeassistant.event:
+        event: esphome.garage_fingerprint_finger_scan_misplaced
+    - fingerprint_grow.aura_led_control:
+        state: FLASHING
+        speed: 25
+        color: PURPLE
+        count: 2
+    - mqtt.publish:
+        topic: fingerprint/events/finger_scan_misplaced
+        payload: !lambda 'return std::string("{\"device\": \"") + App.get_name() + "\"}";'
+
+  # ── ENROLLMENT SCAN ── each individual scan during enrollment
+  on_enrollment_scan:
+    - script.execute:
+        id: publish_fingerprint_state_only
+        state_str: "enrollment_scan"
+    - homeassistant.event:
+        event: esphome.garage_fingerprint_enrollment_scan
+        data:
+          finger_id: !lambda 'return finger_id;'
+          scan_num: !lambda 'return scan_num;'
+    - fingerprint_grow.aura_led_control:
+        state: FLASHING
+        speed: 25
+        color: BLUE
+        count: 2
+    - fingerprint_grow.aura_led_control:
+        state: ALWAYS_ON
+        speed: 0
+        color: PURPLE
+        count: 0
+    - mqtt.publish:
+        topic: fingerprint/events/enrollment_scan
+        payload: !lambda |-
+          return std::string("{\"device\": \"") + App.get_name() +
+                 "\", \"finger_id\": " + std::to_string(finger_id) +
+                 ", \"scan_num\": " + std::to_string(scan_num) + "}";
+
+  # ── ENROLLMENT DONE ── fires fingerprint_manager_enrolled event
+  on_enrollment_done:
+    - script.execute:
+        id: publish_fingerprint_state_only
+        state_str: "enrollment_done"
+    - homeassistant.event:
+        event: esphome.garage_fingerprint_enrollment_done
+        data:
+          finger_id: !lambda 'return finger_id;'
+    - fingerprint_grow.aura_led_control:
+        state: BREATHING
+        speed: 100
+        color: BLUE
+        count: 2
+    - mqtt.publish:
+        topic: fingerprint/events/enrollment_done
+        payload: !lambda |-
+          return std::string("{\"device\": \"") + App.get_name() +
+                 "\", \"finger_id\": " + std::to_string(finger_id) + "}";
+
+  # ── ENROLLMENT FAILED ── fires fingerprint_manager_enrollment_failed event
+  on_enrollment_failed:
+    - script.execute:
+        id: publish_fingerprint_state_only
+        state_str: "enrollment_failed"
+    - homeassistant.event:
+        event: esphome.garage_fingerprint_enrollment_failed
+        data:
+          finger_id: !lambda 'return finger_id;'
+    - fingerprint_grow.aura_led_control:
+        state: FLASHING
+        speed: 25
+        color: RED
+        count: 4
+    - mqtt.publish:
+        topic: fingerprint/events/enrollment_failed
+        payload: !lambda |-
+          return std::string("{\"device\": \"") + App.get_name() +
+                 "\", \"finger_id\": " + std::to_string(finger_id) + "}";
+
+# ── Home Assistant API actions ────────────────────────────────────────────────
+# These become HA services:
+#   esphome.esphome_garage_fingerprint_enroll        (finger_id, num_scans)
+#   esphome.esphome_garage_fingerprint_cancel_enroll
+#   esphome.esphome_garage_fingerprint_delete        (finger_id)
+#   esphome.esphome_garage_fingerprint_delete_all
+api:
+  actions:
+  - action: enroll
+    variables:
+      finger_id: int
+      num_scans: int
+    then:
+      - fingerprint_grow.enroll:
+          finger_id: !lambda 'return finger_id;'
+          num_scans: !lambda 'return num_scans;'
+  - action: cancel_enroll
+    then:
+      - fingerprint_grow.cancel_enroll:
+  - action: delete
+    variables:
+      finger_id: int
+    then:
+      - fingerprint_grow.delete:
+          finger_id: !lambda 'return finger_id;'
+  - action: delete_all
+    then:
+      - fingerprint_grow.delete_all:
+
+script:
+  - id: publish_fingerprint_state_only
+    parameters:
+      state_str: std::string
+    then:
+      - script.execute:
+          id: publish_fingerprint_data
+          finger_id: -1
+          confidence: 0
+          state_str: !lambda 'return state_str;'
+  - id: publish_fingerprint_data
+    parameters:
+      finger_id: int
+      confidence: int
+      state_str: std::string
+    then:
+      - text_sensor.template.publish:
+          id: fingerprint_event
+          state: !lambda 'return state_str;'
+      - sensor.template.publish:
+          id: fingerprint_id_sensor
+          state: !lambda 'return finger_id;'
+      - sensor.template.publish:
+          id: fingerprint_confidence_sensor
+          state: !lambda 'return confidence;'

@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Fingerprint Manager",
+        "data": {
+          "name": "Integration name",
+          "event_prefix": "ESPHome event prefix",
+          "esphome_device": "ESPHome device name (HA service prefix)",
+          "sensor_entity_id": "ESPHome fingerprint ID sensor (optional)"
+        },
+        "data_description": {
+          "event_prefix": "The common prefix of all ESPHome homeassistant.event calls in your YAML, e.g. 'esphome.test_node' for events like esphome.test_node_finger_scan_matched.",
+          "esphome_device": "Device name as used in HA services (hyphens replaced by underscores), e.g. 'esphome_garage_fingerprint'. Used to call enroll/delete actions.",
+          "sensor_entity_id": "Optional: sensor entity that shows the last matched finger ID. Only needed if you do not use event_prefix."
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "The selected sensor entity was not found. Make sure the ESPHome device is online."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Fingerprint Manager options",
+        "data": {
+          "event_prefix": "ESPHome event prefix",
+          "esphome_device": "ESPHome device name (HA service prefix)",
+          "sensor_entity_id": "ESPHome fingerprint ID sensor (optional)"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "The selected sensor entity was not found."
+    }
+  }
+}
