@@ -34,5 +34,13 @@
     "error": {
       "entity_not_found": "The selected sensor entity was not found."
     }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "fingerprint_scanned": "Fingerprint scanned (any result)",
+      "fingerprint_matched": "Fingerprint matched a known user",
+      "fingerprint_enrolled": "Fingerprint enrollment completed",
+      "enrollment_failed": "Fingerprint enrollment failed"
+    }
   }
 }
