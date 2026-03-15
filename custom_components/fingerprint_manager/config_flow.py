@@ -85,7 +85,11 @@ class FingerprintManagerConfigFlow(
     async def async_step_configure(
         self, user_input: dict | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Confirm or adjust the auto-derived event prefix and service name."""
+        """Confirm or adjust the auto-derived event prefix and service name.
+
+        When the user selected a device in step 1, the values are already
+        derived automatically and we skip this form entirely.
+        """
         if user_input is not None:
             return self.async_create_entry(
                 title=self._name,
@@ -94,6 +98,20 @@ class FingerprintManagerConfigFlow(
                     CONF_ESPHOME_DEVICE_ID: self._device_id,
                     CONF_ESPHOME_DEVICE: user_input.get(CONF_ESPHOME_DEVICE, ""),
                     CONF_EVENT_PREFIX: user_input.get(CONF_EVENT_PREFIX, ""),
+                    CONF_SENSOR_ENTITY: self._sensor_entity,
+                },
+            )
+
+        # A device was selected in step 1 – values are already derived, so
+        # skip the confirmation form and create the entry directly.
+        if self._device_id is not None:
+            return self.async_create_entry(
+                title=self._name,
+                data={
+                    "name": self._name,
+                    CONF_ESPHOME_DEVICE_ID: self._device_id,
+                    CONF_ESPHOME_DEVICE: self._derived_device,
+                    CONF_EVENT_PREFIX: self._derived_prefix,
                     CONF_SENSOR_ENTITY: self._sensor_entity,
                 },
             )
@@ -233,7 +251,11 @@ class FingerprintManagerOptionsFlow(config_entries.OptionsFlow):
     async def async_step_configure(
         self, user_input: dict | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Confirm or adjust the auto-derived event prefix and service name."""
+        """Confirm or adjust the auto-derived event prefix and service name.
+
+        When the user selected a device in step 1, the values are already
+        derived automatically and we skip this form entirely.
+        """
         if user_input is not None:
             return self.async_create_entry(
                 title="",
@@ -245,6 +267,22 @@ class FingerprintManagerOptionsFlow(config_entries.OptionsFlow):
                     CONF_ESPHOME_DEVICE_ID: self._device_id,
                     CONF_ESPHOME_DEVICE: user_input.get(CONF_ESPHOME_DEVICE, ""),
                     CONF_EVENT_PREFIX: user_input.get(CONF_EVENT_PREFIX, ""),
+                    CONF_SENSOR_ENTITY: self._sensor_entity,
+                },
+            )
+
+        # A device was selected in step 1 – values are already derived, so
+        # skip the confirmation form and save the options directly.
+        if self._device_id is not None:
+            return self.async_create_entry(
+                title="",
+                data={
+                    FINGERPRINT_STORAGE: self.config_entry.options.get(
+                        FINGERPRINT_STORAGE, {}
+                    ),
+                    CONF_ESPHOME_DEVICE_ID: self._device_id,
+                    CONF_ESPHOME_DEVICE: self._derived_device,
+                    CONF_EVENT_PREFIX: self._derived_prefix,
                     CONF_SENSOR_ENTITY: self._sensor_entity,
                 },
             )
