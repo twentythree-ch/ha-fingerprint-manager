@@ -186,14 +186,28 @@ class TestConfigFlowConfigure:
     async def test_stores_device_id_in_data(self):
         flow = await self._reach_configure()
         flow._device_id = "device_xyz"
-        result = await flow.async_step_configure({CONF_EVENT_PREFIX: "", CONF_ESPHOME_DEVICE: ""})
+        result = await flow.async_step_configure(
+            {CONF_EVENT_PREFIX: "esphome.test", CONF_ESPHOME_DEVICE: "test_device"}
+        )
         assert result["data"][CONF_ESPHOME_DEVICE_ID] == "device_xyz"
 
-    async def test_creates_entry_without_esphome_device(self):
-        """All non-name fields are optional."""
+    async def test_shows_error_when_event_prefix_empty(self):
+        """Empty event_prefix must show validation error."""
         flow = await self._reach_configure()
-        result = await flow.async_step_configure({})
-        assert result["type"] == "create_entry"
+        result = await flow.async_step_configure(
+            {CONF_EVENT_PREFIX: "", CONF_ESPHOME_DEVICE: "test_device"}
+        )
+        assert result["type"] == "form"
+        assert result["errors"].get(CONF_EVENT_PREFIX) == "required"
+
+    async def test_shows_error_when_esphome_device_empty(self):
+        """Empty esphome_device must show validation error."""
+        flow = await self._reach_configure()
+        result = await flow.async_step_configure(
+            {CONF_EVENT_PREFIX: "esphome.test", CONF_ESPHOME_DEVICE: ""}
+        )
+        assert result["type"] == "form"
+        assert result["errors"].get(CONF_ESPHOME_DEVICE) == "required"
 
 
 # ── Options flow: step 1 (init) ───────────────────────────────────────────────
@@ -284,6 +298,24 @@ class TestOptionsFlowConfigure:
         assert result["type"] == "create_entry"
         assert result["data"][CONF_EVENT_PREFIX] == "esphome.new_prefix"
 
+    async def test_shows_error_when_event_prefix_empty(self):
+        """Empty event_prefix must show validation error."""
+        flow = self._flow_at_configure()
+        result = await flow.async_step_configure(
+            {CONF_EVENT_PREFIX: "", CONF_ESPHOME_DEVICE: "new_device"}
+        )
+        assert result["type"] == "form"
+        assert result["errors"].get(CONF_EVENT_PREFIX) == "required"
+
+    async def test_shows_error_when_esphome_device_empty(self):
+        """Empty esphome_device must show validation error."""
+        flow = self._flow_at_configure()
+        result = await flow.async_step_configure(
+            {CONF_EVENT_PREFIX: "esphome.new_prefix", CONF_ESPHOME_DEVICE: ""}
+        )
+        assert result["type"] == "form"
+        assert result["errors"].get(CONF_ESPHOME_DEVICE) == "required"
+
     async def test_preserves_fingerprint_storage(self):
         """Saving options must NOT wipe existing fingerprint mappings."""
         entry = make_config_entry(
@@ -292,7 +324,9 @@ class TestOptionsFlowConfigure:
             }
         )
         flow = self._flow_at_configure(entry=entry)
-        result = await flow.async_step_configure({CONF_EVENT_PREFIX: "", CONF_ESPHOME_DEVICE: ""})
+        result = await flow.async_step_configure(
+            {CONF_EVENT_PREFIX: "esphome.test", CONF_ESPHOME_DEVICE: "test_device"}
+        )
         assert FINGERPRINT_STORAGE in result["data"]
         assert "5" in result["data"][FINGERPRINT_STORAGE]
 

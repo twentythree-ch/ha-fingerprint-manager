@@ -86,30 +86,39 @@ class FingerprintManagerConfigFlow(
         self, user_input: dict | None = None
     ) -> config_entries.ConfigFlowResult:
         """Confirm or adjust the auto-derived event prefix and service name."""
+        errors: dict[str, str] = {}
+
         if user_input is not None:
-            return self.async_create_entry(
-                title=self._name,
-                data={
-                    "name": self._name,
-                    CONF_ESPHOME_DEVICE_ID: self._device_id,
-                    CONF_ESPHOME_DEVICE: user_input.get(CONF_ESPHOME_DEVICE, ""),
-                    CONF_EVENT_PREFIX: user_input.get(CONF_EVENT_PREFIX, ""),
-                    CONF_SENSOR_ENTITY: self._sensor_entity,
-                },
-            )
+            if not user_input.get(CONF_EVENT_PREFIX, "").strip():
+                errors[CONF_EVENT_PREFIX] = "required"
+            if not user_input.get(CONF_ESPHOME_DEVICE, "").strip():
+                errors[CONF_ESPHOME_DEVICE] = "required"
+
+            if not errors:
+                return self.async_create_entry(
+                    title=self._name,
+                    data={
+                        "name": self._name,
+                        CONF_ESPHOME_DEVICE_ID: self._device_id,
+                        CONF_ESPHOME_DEVICE: user_input[CONF_ESPHOME_DEVICE].strip(),
+                        CONF_EVENT_PREFIX: user_input[CONF_EVENT_PREFIX].strip(),
+                        CONF_SENSOR_ENTITY: self._sensor_entity,
+                    },
+                )
 
         return self.async_show_form(
             step_id="configure",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(
+                    vol.Required(
                         CONF_EVENT_PREFIX, default=self._derived_prefix
                     ): str,
-                    vol.Optional(
+                    vol.Required(
                         CONF_ESPHOME_DEVICE, default=self._derived_device
                     ): str,
                 }
             ),
+            errors=errors,
         )
 
     # ── Shared helper ─────────────────────────────────────────────────────────
@@ -242,33 +251,42 @@ class FingerprintManagerOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict | None = None
     ) -> config_entries.ConfigFlowResult:
         """Confirm or adjust the auto-derived event prefix and service name."""
+        errors: dict[str, str] = {}
+
         if user_input is not None:
-            return self.async_create_entry(
-                title="",
-                data={
-                    # Preserve fingerprint mappings stored by the coordinator.
-                    FINGERPRINT_STORAGE: self.config_entry.options.get(
-                        FINGERPRINT_STORAGE, {}
-                    ),
-                    CONF_ESPHOME_DEVICE_ID: self._device_id,
-                    CONF_ESPHOME_DEVICE: user_input.get(CONF_ESPHOME_DEVICE, ""),
-                    CONF_EVENT_PREFIX: user_input.get(CONF_EVENT_PREFIX, ""),
-                    CONF_SENSOR_ENTITY: self._sensor_entity,
-                },
-            )
+            if not user_input.get(CONF_EVENT_PREFIX, "").strip():
+                errors[CONF_EVENT_PREFIX] = "required"
+            if not user_input.get(CONF_ESPHOME_DEVICE, "").strip():
+                errors[CONF_ESPHOME_DEVICE] = "required"
+
+            if not errors:
+                return self.async_create_entry(
+                    title="",
+                    data={
+                        # Preserve fingerprint mappings stored by the coordinator.
+                        FINGERPRINT_STORAGE: self.config_entry.options.get(
+                            FINGERPRINT_STORAGE, {}
+                        ),
+                        CONF_ESPHOME_DEVICE_ID: self._device_id,
+                        CONF_ESPHOME_DEVICE: user_input[CONF_ESPHOME_DEVICE].strip(),
+                        CONF_EVENT_PREFIX: user_input[CONF_EVENT_PREFIX].strip(),
+                        CONF_SENSOR_ENTITY: self._sensor_entity,
+                    },
+                )
 
         return self.async_show_form(
             step_id="configure",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(
+                    vol.Required(
                         CONF_EVENT_PREFIX, default=self._derived_prefix
                     ): str,
-                    vol.Optional(
+                    vol.Required(
                         CONF_ESPHOME_DEVICE, default=self._derived_device
                     ): str,
                 }
             ),
+            errors=errors,
         )
 
     # ── Shared helpers ────────────────────────────────────────────────────────

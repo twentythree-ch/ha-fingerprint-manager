@@ -12,10 +12,15 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements_test.txt
+        run: |
+          cat > constraints.txt <<'EOF'
+          homeassistant==2024.12.5
+          pytest-homeassistant-custom-component==0.13.201
+          EOF
+          pip install -c constraints.txt -r requirements_test.txt
 
       - name: Run tests
         run: pytest
