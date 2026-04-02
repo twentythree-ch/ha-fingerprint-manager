@@ -85,11 +85,7 @@ class FingerprintManagerConfigFlow(
     async def async_step_configure(
         self, user_input: dict | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Confirm or adjust the auto-derived event prefix and service name.
-
-        When the user selected a device in step 1, the values are already
-        derived automatically and we skip this form entirely.
-        """
+        """Confirm or adjust the auto-derived event prefix and service name."""
         if user_input is not None:
             return self.async_create_entry(
                 title=self._name,
@@ -98,20 +94,6 @@ class FingerprintManagerConfigFlow(
                     CONF_ESPHOME_DEVICE_ID: self._device_id,
                     CONF_ESPHOME_DEVICE: user_input.get(CONF_ESPHOME_DEVICE, ""),
                     CONF_EVENT_PREFIX: user_input.get(CONF_EVENT_PREFIX, ""),
-                    CONF_SENSOR_ENTITY: self._sensor_entity,
-                },
-            )
-
-        # A device was selected in step 1 – values are already derived, so
-        # skip the confirmation form and create the entry directly.
-        if self._device_id is not None:
-            return self.async_create_entry(
-                title=self._name,
-                data={
-                    "name": self._name,
-                    CONF_ESPHOME_DEVICE_ID: self._device_id,
-                    CONF_ESPHOME_DEVICE: self._derived_device,
-                    CONF_EVENT_PREFIX: self._derived_prefix,
                     CONF_SENSOR_ENTITY: self._sensor_entity,
                 },
             )
@@ -137,8 +119,15 @@ class FingerprintManagerConfigFlow(
 
         Looks up the ESPHome config entry that owns *device_id* and derives:
           - slug        : node name with non-alphanumeric chars → underscores
-          - event_prefix: ``esphome.<slug>`` (matches the homeassistant.event
-                          convention used in the example ESPHome YAML)
+          - event_prefix: ``esphome.<slug_without_esphome_prefix>`` (matches
+                          the homeassistant.event convention used in the
+                          example ESPHome YAML)
+
+        ESPHome node names often start with ``esphome-`` (e.g.
+        ``esphome-garage-fingerprint``).  The HA service slug must keep the
+        full name (``esphome_garage_fingerprint``), but the event prefix
+        convention drops the leading ``esphome_`` so events look like
+        ``esphome.garage_fingerprint_finger_scan_matched``.
         """
         dev_reg = dr.async_get(self.hass)
         device = dev_reg.async_get(device_id)
@@ -151,7 +140,8 @@ class FingerprintManagerConfigFlow(
                 node_name: str = entry.data.get("name", "")
                 if node_name:
                     slug = _slugify(node_name)
-                    return slug, f"esphome.{slug}"
+                    event_slug = slug.removeprefix("esphome_")
+                    return slug, f"esphome.{event_slug}"
 
         return "", ""
 
@@ -251,11 +241,7 @@ class FingerprintManagerOptionsFlow(config_entries.OptionsFlow):
     async def async_step_configure(
         self, user_input: dict | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Confirm or adjust the auto-derived event prefix and service name.
-
-        When the user selected a device in step 1, the values are already
-        derived automatically and we skip this form entirely.
-        """
+        """Confirm or adjust the auto-derived event prefix and service name."""
         if user_input is not None:
             return self.async_create_entry(
                 title="",
@@ -267,22 +253,6 @@ class FingerprintManagerOptionsFlow(config_entries.OptionsFlow):
                     CONF_ESPHOME_DEVICE_ID: self._device_id,
                     CONF_ESPHOME_DEVICE: user_input.get(CONF_ESPHOME_DEVICE, ""),
                     CONF_EVENT_PREFIX: user_input.get(CONF_EVENT_PREFIX, ""),
-                    CONF_SENSOR_ENTITY: self._sensor_entity,
-                },
-            )
-
-        # A device was selected in step 1 – values are already derived, so
-        # skip the confirmation form and save the options directly.
-        if self._device_id is not None:
-            return self.async_create_entry(
-                title="",
-                data={
-                    FINGERPRINT_STORAGE: self.config_entry.options.get(
-                        FINGERPRINT_STORAGE, {}
-                    ),
-                    CONF_ESPHOME_DEVICE_ID: self._device_id,
-                    CONF_ESPHOME_DEVICE: self._derived_device,
-                    CONF_EVENT_PREFIX: self._derived_prefix,
                     CONF_SENSOR_ENTITY: self._sensor_entity,
                 },
             )
@@ -316,7 +286,8 @@ class FingerprintManagerOptionsFlow(config_entries.OptionsFlow):
                 node_name: str = entry.data.get("name", "")
                 if node_name:
                     slug = _slugify(node_name)
-                    return slug, f"esphome.{slug}"
+                    event_slug = slug.removeprefix("esphome_")
+                    return slug, f"esphome.{event_slug}"
 
         return "", ""
 

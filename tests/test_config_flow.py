@@ -91,8 +91,8 @@ class TestConfigFlow:
         assert result["errors"].get(CONF_SENSOR_ENTITY) == "entity_not_found"
 
     async def test_derives_names_from_selected_device(self):
-        """Selecting a device auto-derives the slug and event prefix, and skips
-        the configure form — the entry is created directly."""
+        """Selecting a device auto-derives the slug and event prefix, and
+        advances to the configure confirmation form."""
         hass = _make_hass()
         device = MagicMock()
         device.config_entries = ["esphome_entry_1"]
@@ -108,10 +108,40 @@ class TestConfigFlow:
                 {"name": "Garage", CONF_ESPHOME_DEVICE_ID: "device_abc"}
             )
 
+        # Should show the configure form with derived defaults
+        assert result["type"] == "form"
+        assert result["step_id"] == "configure"
+        assert flow._derived_device == "esphome_garage_fingerprint"
+        assert flow._derived_prefix == "esphome.garage_fingerprint"
+
+    async def test_derives_names_and_creates_entry_on_confirm(self):
+        """After confirming derived names, the entry is created."""
+        hass = _make_hass()
+        device = MagicMock()
+        device.config_entries = ["esphome_entry_1"]
+        esphome_entry = _make_esphome_entry("esphome-garage-fingerprint")
+        hass.config_entries.async_get_entry = MagicMock(return_value=esphome_entry)
+
+        with patch(
+            "custom_components.fingerprint_manager.config_flow.dr.async_get"
+        ) as mock_dr:
+            mock_dr.return_value.async_get = MagicMock(return_value=device)
+            flow = _flow(hass)
+            await flow.async_step_user(
+                {"name": "Garage", CONF_ESPHOME_DEVICE_ID: "device_abc"}
+            )
+
+        result = await flow.async_step_configure(
+            {
+                CONF_EVENT_PREFIX: "esphome.garage_fingerprint",
+                CONF_ESPHOME_DEVICE: "esphome_garage_fingerprint",
+            }
+        )
+
         assert result["type"] == "create_entry"
         assert result["title"] == "Garage"
         assert result["data"][CONF_ESPHOME_DEVICE] == "esphome_garage_fingerprint"
-        assert result["data"][CONF_EVENT_PREFIX] == "esphome.esphome_garage_fingerprint"
+        assert result["data"][CONF_EVENT_PREFIX] == "esphome.garage_fingerprint"
         assert result["data"][CONF_ESPHOME_DEVICE_ID] == "device_abc"
 
     def test_async_get_options_flow_returns_options_flow(self):
@@ -191,7 +221,7 @@ class TestOptionsFlow:
         assert result["errors"].get(CONF_SENSOR_ENTITY) == "entity_not_found"
 
     async def test_derives_names_when_device_selected(self):
-        """Selecting a device skips the configure form — entry is saved directly."""
+        """Selecting a device advances to the configure confirmation form."""
         hass = _make_hass()
         device = MagicMock()
         device.config_entries = ["esphome_entry_1"]
@@ -207,10 +237,11 @@ class TestOptionsFlow:
                 {CONF_ESPHOME_DEVICE_ID: "device_abc"}
             )
 
-        assert result["type"] == "create_entry"
-        assert result["data"][CONF_ESPHOME_DEVICE] == "garage_fp"
-        assert result["data"][CONF_EVENT_PREFIX] == "esphome.garage_fp"
-        assert result["data"][CONF_ESPHOME_DEVICE_ID] == "device_abc"
+        assert result["type"] == "form"
+        assert result["step_id"] == "configure"
+        assert flow._derived_device == "garage_fp"
+        assert flow._derived_prefix == "esphome.garage_fp"
+        assert flow._device_id == "device_abc"
 
     async def test_falls_back_to_existing_values_when_no_device(self):
         """When no device is selected, existing text values are kept as defaults."""
