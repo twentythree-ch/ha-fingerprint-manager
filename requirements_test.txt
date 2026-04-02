@@ -1,4 +1,4 @@
 pytest
 pytest-asyncio
-homeassistant
-pytest-homeassistant-custom-component
+homeassistant==2025.1.4
+pytest-homeassistant-custom-component==0.13.205
