@@ -40,11 +40,17 @@ def _flow(hass) -> FingerprintManagerConfigFlow:
     return flow
 
 
-def _make_esphome_entry(node_name: str) -> MagicMock:
-    """Return a mock ESPHome config entry with the given node name."""
+def _make_esphome_entry(node_name: str, *, use_legacy_key: bool = False) -> MagicMock:
+    """Return a mock ESPHome config entry with the given node name.
+
+    By default uses ``device_name`` (current ESPHome key).
+    Set *use_legacy_key* to store the name under ``name`` instead.
+    """
     entry = MagicMock()
     entry.domain = "esphome"
-    entry.data = {"name": node_name}
+    key = "name" if use_legacy_key else "device_name"
+    entry.data = {key: node_name}
+    entry.title = node_name
     return entry
 
 
@@ -111,6 +117,49 @@ class TestConfigFlow:
         # Should show the configure form with derived defaults
         assert result["type"] == "form"
         assert result["step_id"] == "configure"
+        assert flow._derived_device == "esphome_garage_fingerprint"
+        assert flow._derived_prefix == "esphome.garage_fingerprint"
+
+    async def test_derives_names_from_legacy_name_key(self):
+        """ESPHome entries that still use the legacy ``name`` key in data."""
+        hass = _make_hass()
+        device = MagicMock()
+        device.config_entries = ["esphome_entry_1"]
+        esphome_entry = _make_esphome_entry("esphome-garage-fingerprint", use_legacy_key=True)
+        hass.config_entries.async_get_entry = MagicMock(return_value=esphome_entry)
+
+        with patch(
+            "custom_components.fingerprint_manager.config_flow.dr.async_get"
+        ) as mock_dr:
+            mock_dr.return_value.async_get = MagicMock(return_value=device)
+            flow = _flow(hass)
+            await flow.async_step_user(
+                {"name": "Garage", CONF_ESPHOME_DEVICE_ID: "device_abc"}
+            )
+
+        assert flow._derived_device == "esphome_garage_fingerprint"
+        assert flow._derived_prefix == "esphome.garage_fingerprint"
+
+    async def test_derives_names_from_entry_title_fallback(self):
+        """When neither ``device_name`` nor ``name`` exists, fall back to entry.title."""
+        hass = _make_hass()
+        device = MagicMock()
+        device.config_entries = ["esphome_entry_1"]
+        entry = MagicMock()
+        entry.domain = "esphome"
+        entry.data = {}  # no device_name or name key
+        entry.title = "esphome-garage-fingerprint"
+        hass.config_entries.async_get_entry = MagicMock(return_value=entry)
+
+        with patch(
+            "custom_components.fingerprint_manager.config_flow.dr.async_get"
+        ) as mock_dr:
+            mock_dr.return_value.async_get = MagicMock(return_value=device)
+            flow = _flow(hass)
+            await flow.async_step_user(
+                {"name": "Garage", CONF_ESPHOME_DEVICE_ID: "device_abc"}
+            )
+
         assert flow._derived_device == "esphome_garage_fingerprint"
         assert flow._derived_prefix == "esphome.garage_fingerprint"
 
