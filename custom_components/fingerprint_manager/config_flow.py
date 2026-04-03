@@ -146,7 +146,12 @@ class FingerprintManagerConfigFlow(
         for entry_id in device.config_entries:
             entry = self.hass.config_entries.async_get_entry(entry_id)
             if entry and entry.domain == "esphome":
-                node_name: str = entry.data.get("name", "")
+                node_name: str = (
+                    entry.data.get("device_name")
+                    or entry.data.get("name")
+                    or entry.title
+                    or ""
+                )
                 if node_name:
                     slug = _slugify(node_name)
                     event_slug = slug.removeprefix("esphome_")
@@ -301,7 +306,12 @@ class FingerprintManagerOptionsFlow(config_entries.OptionsFlow):
         for entry_id in device.config_entries:
             entry = self.hass.config_entries.async_get_entry(entry_id)
             if entry and entry.domain == "esphome":
-                node_name: str = entry.data.get("name", "")
+                node_name: str = (
+                    entry.data.get("device_name")
+                    or entry.data.get("name")
+                    or entry.title
+                    or ""
+                )
                 if node_name:
                     slug = _slugify(node_name)
                     event_slug = slug.removeprefix("esphome_")
